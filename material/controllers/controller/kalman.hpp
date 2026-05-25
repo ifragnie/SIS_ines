@@ -84,6 +84,251 @@ static Mat sigma_pred = Mat::Identity();
 ///////////////////////////////////////////////////
 // TODO: implement your Kalman filter here after //
 
+
+void kal_prediction(double distL, double distR, double gyro_z, double dt, bool close_to_node) {
+    const double L = PioneerInfo::axis_length;
+
+    double dCenter = (distR + distL) / 2.0;
+    
+    // Rotation : gyroscope au lieu des encodeurs
+    double dTheta = gyro_z * dt;
+
+    double theta_mid = mu(2) + dTheta / 2.0;
+
+    mu_pred(0) = mu(0) + dCenter * cos(theta_mid);
+    mu_pred(1) = mu(1) + dCenter * sin(theta_mid);
+    mu_pred(2) = mu(2) + dTheta;
+    mu_pred(2) = atan2(sin(mu_pred(2)), cos(mu_pred(2)));
+
+    double sigma_v, sigma_w;
+    if (close_to_node) {
+        sigma_v = 0.010;
+        sigma_w = 0.01;
+    } else {
+        sigma_v = 0.05;
+        sigma_w = 0.025;
+    }
+
+    Mat F = Mat::Identity();
+    F(0,2) = -dCenter * sin(theta_mid);
+    F(1,2) =  dCenter * cos(theta_mid);
+
+    Mat R = Mat::Zero();
+    R(0,0) = sigma_v * sigma_v;
+    R(1,1) = sigma_v * sigma_v;
+    R(2,2) = sigma_w * sigma_w;
+
+    sigma_pred = F * sigma * F.transpose() + R;
+    mu    = mu_pred;
+    sigma = sigma_pred;
+}
+
+
+///////////////////////////////////////////////////
+void kal_update_position(double x_node, double y_node, double distance){
+
+
+    //measurment matrix
+    Eigen::Matrix<double,2,3> H;
+    H<< 1,0,0,
+        0,1,0;
+
+   
+    
+    
+    double sigma_pos_x;
+    double sigma_pos_y;
+        
+    sigma_pos_x=0.05+distance*0.4;
+    sigma_pos_y=1.5;
+
+
+    Eigen::Matrix<double,2,2> Q;
+
+    Q<<sigma_pos_x*sigma_pos_x, 0,
+        0,sigma_pos_y*sigma_pos_y;
+        
+
+    //measurment vector 
+    Eigen::Matrix<double,2,1> innovation;
+    
+    
+    
+    //double alpha = 0.05;
+     Eigen::Matrix<double,2,1> z;
+    
+     z << x_node, 
+          y_node; 
+   
+    //predicted measurment(odometry)
+     Eigen::Matrix<double,2,1> z_pred;
+
+     z_pred << mu_pred(0),
+               mu_pred(1);
+              
+              
+              
+      
+    //////////////////////////////////////////////////
+    // Innovation
+    //////////////////////////////////////////////////
+
+      
+
+     innovation = z - z_pred;
+
+    double max_innov = 0.25;
+    double innov_norm = innovation.norm();
+    if (innov_norm > max_innov) {
+        innovation = innovation * (max_innov / innov_norm);
+    }
+    
+     //update
+    Eigen::Matrix<double,2,2> S;
+    S= H*sigma_pred*H.transpose()+Q;
+    if(fabs(S.determinant()) < 1e-9){ 
+    return;
+    }
+    Eigen::Matrix<double,3,2> K;
+    K = sigma_pred * H.transpose() * S.inverse();
+    
+    
+    
+    mu=mu_pred+K*innovation;
+    sigma=(I-K*H)*sigma_pred;
+
+
+}
+
+void kal_update_heading_axis()
+{
+    double err0 = fabs(
+        atan2(sin(mu(2)),
+              cos(mu(2)))
+    );
+
+    double errPi = fabs(
+        atan2(sin(mu(2) - M_PI),
+              cos(mu(2) - M_PI))
+    );
+
+    double theta_meas =
+        (err0 < errPi)
+        ? 0.0
+        : M_PI;
+
+    double sigma_theta_meas = 0.35;
+
+    double innovation =
+        theta_meas - mu(2);
+
+    innovation = atan2(
+        sin(innovation),
+        cos(innovation)
+    );
+
+    double S =
+        sigma(2,2)
+        + sigma_theta_meas * sigma_theta_meas;
+
+    double K =
+        sigma(2,2) / S;
+
+    mu(2) += K * innovation;
+
+    mu(2) = atan2(
+        sin(mu(2)),
+        cos(mu(2))
+    );
+
+    sigma(2,2) *= (1.0 - K);
+    
+}
+#include <math.h>
+#include <memory.h>
+#include <Eigen/Dense>
+
+#include "odometry.hpp"
+
+///////////////////
+// Eigen library //     DO NOT MODIFY THIS PART
+///////////////////
+
+#include <Eigen/Dense>
+
+#define DIM 3                                       // State dimension 
+
+typedef Eigen::Matrix<double,DIM,DIM>   Mat;        // DIMxDIM matrix  
+typedef Eigen::Matrix<double, -1, -1>   MatX;       // Arbitrary size matrix 
+typedef Eigen::Matrix<double,DIM,  1>   Vec;        // DIMx1 column vector  
+typedef Eigen::Matrix<double, -1,  1>   VecX;       // Arbitrary size column vector  
+
+static const Mat I = MatX::Identity(DIM,DIM);       // DIMxDIM identity matrix  
+
+//////////////////////////////////
+// Kalman filter base functions //    DO NOT MODIFY THIS PART
+//////////////////////////////////
+
+// State vector mu (x,y,heading) to be updated by the Kalman filter functions
+static Vec mu = Vec::Zero();
+// State covariance sigma to be updated by the Kalman filter functions
+static Mat sigma = Mat::Zero();
+
+static bool near_node = false;
+/**bon
+ * @brief      Get the state dimension 
+*/
+int kal_get_dim(){
+    return DIM;
+}
+
+/**
+ * @brief      Copy the state vector into a 1D array
+*/
+void kal_get_state(double* state){
+    for(int i=0; i<DIM; i++){
+        state[i] = mu(i);
+    }
+}
+
+/**
+ * @brief      Copy the state covariance matrix into a 2D array
+*/
+void kal_get_state_covariance(double** cov){
+    for(int i=0;i<sigma.rows();i++){
+        for(int j=0; j<sigma.cols(); j++){
+            cov[i][j] = sigma(i,j);
+        }
+    }
+}
+
+/**
+ * @brief      Check if a matrix contains any NaN values 
+*/
+bool kal_check_nan(const MatX& m){
+    for(int i=0;i<m.rows();i++){
+        for(int j=0; j<m.cols(); j++){
+            if(isnan(m(i,j))){
+                printf("FATAL: matrix has NaN values, exiting...\n");
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+void kal_set_node_visibility(bool visible)
+{
+    near_node = visible;
+}
+
+static Vec mu_pred = Vec::Zero();
+static Mat sigma_pred = Mat::Identity();
+
+
+///////////////////////////////////////////////////
+// TODO: implement your Kalman filter here after //
+
 /*KALMAN PREDICTION QUI MARCHE EN ATTENTE DE MIEUX
 void kal_prediction(double v , double odo_w, double dt, bool close_to_node ){
 
