@@ -1,4 +1,4 @@
-#pragma once 
+#pragma once #pragma once 
 
 // Implemented by: Alice Bocquet, 379741
 
