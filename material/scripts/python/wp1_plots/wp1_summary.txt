@@ -1,0 +1,7 @@
+WP1 summary
+===========
+Trajectory time until stop: 657.66 s
+Total collisions: 0
+Ground truth file: /home/ifragnie/Desktop/MyFiles/BA3_SIS/material/controllers/supervisor/data/ground_truth.csv
+Collisions file: /home/ifragnie/Desktop/MyFiles/BA3_SIS/material/controllers/supervisor/data/collisions.csv
+Temperature file: /home/ifragnie/Desktop/MyFiles/BA3_SIS/material/controllers/controller/data/temperature.csv
